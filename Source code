@@ -1,0 +1,274 @@
+NLP Challenge: IMDB Dataset of 50K Movie Reviews to perform Sentiment analysis
+# Import required libraries 
+import zipfile
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report
+
+import string 
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, Dense, Dropout, LSTM
+
+import nltk
+nltk.download('punkt')
+nltk.download('wordnet')
+nltk.download('stopwords')
+nltk.download('averaged_perceptron_tagger')
+from contractions import fix
+from nltk.corpus import stopwords, wordnet
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from nltk import pos_tag
+import matplotlib.pyplot as plt
+
+#Read the zip file and unzip it
+with zipfile.ZipFile('imdb.zip') as f:
+    f.extractall('')
+
+#Read the IMDB dataset
+raw_data = pd.read_csv("IMDB Dataset.csv")
+
+#Visualize the dataset
+raw_data.head()
+
+review	sentiment
+0	One of the other reviewers has mentioned that ...	positive
+1	A wonderful little production. <br /><br />The...	positive
+2	I thought this was a wonderful way to spend ti...	positive
+3	Basically there's a family where a little boy ...	negative
+4	Petter Mattei's "Love in the Time of Money" is...	positive
+
+#Print one review 
+print(raw_data.loc[8, 'review'])
+Encouraged by the positive comments about this film on here I was looking forward to watching this film. Bad mistake. I've seen 950+ films and this is truly one of the worst of them - it's awful in almost every way: editing, pacing, storyline, 'acting,' soundtrack (the film's only song - a lame country tune - is played no less than four times). The film looks cheap and nasty and is boring in the extreme. Rarely have I been so happy to see the end credits of a film. <br /><br />The only thing that prevents me giving this a 1-score is Harvey Keitel - while this is far from his best performance he at least seems to be making a bit of an effort. One for Keitel obsessives only.
+
+Cleaning up
+Now, raw reviews will be processed. Pre-processing actions will be carried ouy to clen the raw reviews and proceed with the sentiment analysis. This actions include remove punctuations, html tags, and stopwords, expand contractions, and lemmatization.
+
+#Define a function to remove the html tag
+def remove_html_tag(review):
+    
+    return review.replace('<br />', '')
+
+#Apply the function to the full dataset
+raw_data['review'] = raw_data['review'].apply(remove_html_tag)
+
+#Check the text after remove the html tag
+print(raw_data.loc[8, 'review'])
+
+Encouraged by the positive comments about this film on here I was looking forward to watching this film. Bad mistake. I've seen 950+ films and this is truly one of the worst of them - it's awful in almost every way: editing, pacing, storyline, 'acting,' soundtrack (the film's only song - a lame country tune - is played no less than four times). The film looks cheap and nasty and is boring in the extreme. Rarely have I been so happy to see the end credits of a film. The only thing that prevents me giving this a 1-score is Harvey Keitel - while this is far from his best performance he at least seems to be making a bit of an effort. One for Keitel obsessives only.
+
+#define a function to expand contractions
+def expand_contractions(review):
+    return fix(review) #Expand contractions I'm to I am and so on.
+
+#Apply the function to expand contractions
+raw_data['review']= raw_data['review'].apply(expand_contractions)
+
+#Define a function to remove punctuation 
+def remove_punctuation(review):
+    regular_punct = list(string.punctuation)
+    for punc in regular_punct:
+        if punc in review:
+            review = review.replace(punc, '')
+    return review.strip().lower() #Make each word lower case
+
+#Apply the function to remove punctuation
+raw_data['review'] = raw_data['review'].apply(remove_punctuation)
+
+#See the result
+print(raw_data.loc[8, 'review'])
+encouraged by the positive comments about this film on here i was looking forward to watching this film bad mistake i have seen 950 films and this is truly one of the worst of them  it is awful in almost every way editing pacing storyline acting soundtrack the films only song  a lame country tune  is played no less than four times the film looks cheap and nasty and is boring in the extreme rarely have i been so happy to see the end credits of a film the only thing that prevents me giving this a 1score is harvey keitel  while this is far from his best performance he at least seems to be making a bit of an effort one for keitel obsessives only
+
+#Define a function to remove words such as 'the', 'a', 'this', and more. 
+def remove_stopwords(review):
+    en_stops = set(stopwords.words('english'))
+    review = review.split()
+    review = " ".join([word for word in review if not word in en_stops])  
+    return review
+
+#Apply the function to remove stopwords
+raw_data['review'] = raw_data['review'].apply(remove_stopwords)
+
+#See output
+print(raw_data.loc[8, 'review'])
+encouraged positive comments film looking forward watching film bad mistake seen 950 films truly one worst awful almost every way editing pacing storyline acting soundtrack films song lame country tune played less four times film looks cheap nasty boring extreme rarely happy see end credits film thing prevents giving 1score harvey keitel far best performance least seems making bit effort one keitel obsessives
+
+Tokenize and Lemmatization
+Lemmatization transforms a words to its simpler form, returning the word’s lemma – a canonical form of all its inflectional forms (e.g, go represents its inflected forms of goes, going, went, gone).
+
+#Split the reviews into individual words with word_tokenize
+raw_data['review']= raw_data['review'].apply(word_tokenize)
+
+print(raw_data.loc[8, 'review'])
+['encouraged', 'positive', 'comments', 'film', 'looking', 'forward', 'watching', 'film', 'bad', 'mistake', 'seen', '950', 'films', 'truly', 'one', 'worst', 'awful', 'almost', 'every', 'way', 'editing', 'pacing', 'storyline', 'acting', 'soundtrack', 'films', 'song', 'lame', 'country', 'tune', 'played', 'less', 'four', 'times', 'film', 'looks', 'cheap', 'nasty', 'boring', 'extreme', 'rarely', 'happy', 'see', 'end', 'credits', 'film', 'thing', 'prevents', 'giving', '1score', 'harvey', 'keitel', 'far', 'best', 'performance', 'least', 'seems', 'making', 'bit', 'effort', 'one', 'keitel', 'obsessives']
+
+#Define a function to lemmatize the words according to its POS tag 
+def lemma_wordnet(review):
+    
+    lemmatizer = WordNetLemmatizer()
+    lemmas = []
+    for word, tag in pos_tag(review): #Pos tagging avoid rule-based truncation 
+        if tag.startswith('NN'):  # noun
+            pos = wordnet.NOUN
+        elif tag.startswith('VB'):  # verb
+            pos = wordnet.VERB
+        elif tag.startswith('JJ'):  # adjective
+            pos = wordnet.ADJ
+        elif tag.startswith('RB'):  # adverb
+            pos = wordnet.ADV
+        else:
+            pos = wordnet.NOUN  # default to noun if POS tag not recognized
+        lemmas.append(lemmatizer.lemmatize(word, pos=pos))
+    return lemmas
+
+# Apply the lemmatize_review function to each review in the DataFrame
+raw_data['review'] = raw_data['review'].apply(lemma_wordnet)
+
+print(raw_data.loc[8, 'review'])
+['encourage', 'positive', 'comment', 'film', 'look', 'forward', 'watch', 'film', 'bad', 'mistake', 'see', '950', 'film', 'truly', 'one', 'bad', 'awful', 'almost', 'every', 'way', 'edit', 'pace', 'storyline', 'act', 'soundtrack', 'film', 'song', 'lame', 'country', 'tune', 'play', 'less', 'four', 'time', 'film', 'look', 'cheap', 'nasty', 'boring', 'extreme', 'rarely', 'happy', 'see', 'end', 'credit', 'film', 'thing', 'prevents', 'give', '1score', 'harvey', 'keitel', 'far', 'best', 'performance', 'least', 'seem', 'make', 'bite', 'effort', 'one', 'keitel', 'obsessive']
+
+#Let's now combine the lemmatized tokens 
+def combine(input):
+    combined= ' '.join(input)
+    return combined
+
+#Apply the combine function
+raw_data['review']= raw_data['review'].apply(combine)
+print(raw_data.loc[8, 'review'])
+encourage positive comment film look forward watch film bad mistake see 950 film truly one bad awful almost every way edit pace storyline act soundtrack film song lame country tune play less four time film look cheap nasty boring extreme rarely happy see end credit film thing prevents give 1score harvey keitel far best performance least seem make bite effort one keitel obsessive
+
+#Rename the data set and create a copy
+clean_df= raw_data.copy()
+clean_df.head()
+
+review	sentiment
+0	one reviewer mention watch 1 oz episode hook r...	positive
+1	wonderful little production film technique una...	positive
+2	think wonderful way spend time hot summer week...	positive
+3	basically family little boy jake think zombie ...	negative
+4	petter matteis love time money visually stunni...	positive
+
+Label encoding
+Now that reviews have been processed, let's work with the categorical values for the sentiment column.
+
+#Visualize the distribution of the reviews
+fig = plt.figure(figsize=(8,6))
+
+clean_df.groupby(['sentiment']).review.count().sort_values().plot.barh(
+    ylim=0, title= 'reviews per category')
+
+plt.xlabel('frequency', fontsize = 12);
+
+#check unique values in sentiment column
+clean_df.sentiment.unique()
+array(['positive', 'negative'], dtype=object)
+
+#Initialize the LabelEconder to transform categorical values
+encoder= LabelEncoder()
+clean_df['sentiment']= encoder.fit_transform(clean_df.sentiment)
+
+clean_df.head()
+review	sentiment
+0	one reviewer mention watch 1 oz episode hook r...	1
+1	wonderful little production film technique una...	1
+2	think wonderful way spend time hot summer week...	1
+3	basically family little boy jake think zombie ...	0
+4	petter matteis love time money visually stunni...	1
+
+Tokenizer in Keras
+Keras has the class Tokenizer. This class will help to vectorize a text by turning each word into a sequence of integers. The method texts_to_sequences will output an integer sequence where each integer corresponds to the index of the element in the corpus. The sequence length is equal to the number of words or tokens in the input sequence.
+
+#Initialize Tokenizer and keep the 20000 most frequent words 
+tokenizer= Tokenizer(num_words=20000) 
+
+#Fit the tokenizer to the reviews column
+tokenizer.fit_on_texts(clean_df['review'])
+
+#Apply the tokenizer to the reviews
+clean_df['review']= tokenizer.texts_to_sequences(clean_df['review'])
+print(clean_df.loc[8, 'review'])
+[2592, 919, 307, 2, 23, 780, 13, 2, 17, 790, 6, 2, 266, 3, 17, 293, 123, 84, 34, 476, 514, 605, 39, 577, 2, 256, 684, 446, 1401, 37, 259, 557, 10, 2, 23, 523, 1302, 571, 1225, 1420, 535, 6, 29, 387, 2, 38, 8969, 31, 3706, 8255, 139, 51, 70, 127, 41, 4, 1020, 458, 3, 8255, 5629]
+
+Next, split the data into train and test using the train_test_split function.
+
+#Set the x and y
+x_col = 'review'
+y_col= 'sentiment'
+
+# Split the data
+X_data = clean_df[x_col]
+y_data = clean_df[y_col]
+
+X_train, X_test, y_train, y_test = train_test_split(X_data, y_data, 
+                                                    test_size=0.3, random_state=42)
+
+Now, apply the function pad_sequences. This function transforms a sequence into a 2D Numpy array with the number of rows equal to the number of samples and the number of columns equal to the parameter maxlen (the length of the longest sequence in the list). Sequences that are shorter than maxlen are padded with the parameter value, which is by default zero.
+
+#Transform the sequences
+maxlen= 40
+X_train= pad_sequences(X_train, maxlen=maxlen)
+X_test= pad_sequences(X_test, maxlen=maxlen)
+
+X_test.shape
+(15000, 40)
+
+Modelling
+#Set the parameters
+input_dim=20000
+output_dim=50
+input_length=40
+
+units=1
+
+#model
+seq_model = Sequential() #Initialize the sequential model
+
+seq_model.add(Embedding(input_dim=input_dim, output_dim=output_dim, input_length=input_length)) #Add an embedding layer
+seq_model.add(LSTM(128, dropout=0.6)) #Add the LSTM layer
+seq_model.add(Dense(32, activation='relu')) #Add a fully conected layer
+seq_model.add(Dropout(0.6))
+seq_model.add(Dense(32, activation='relu'))
+seq_model.add(Dropout(0.6))
+
+seq_model.add(Dense(units=units, activation='sigmoid')) #Add one final dense layer
+seq_model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['acc'])
+
+history= seq_model.fit(X_train, y_train, epochs=5, batch_size=32, validation_split=0.3)
+
+Epoch 1/5
+766/766 [==============================] - 547s 689ms/step - loss: 0.5756 - acc: 0.6762 - val_loss: 0.3895 - val_acc: 0.8253
+Epoch 2/5
+766/766 [==============================] - 815s 1s/step - loss: 0.4046 - acc: 0.8392 - val_loss: 0.3756 - val_acc: 0.8277
+Epoch 3/5
+766/766 [==============================] - 383s 500ms/step - loss: 0.3665 - acc: 0.8562 - val_loss: 0.3619 - val_acc: 0.8415
+Epoch 4/5
+766/766 [==============================] - 428s 558ms/step - loss: 0.3484 - acc: 0.8640 - val_loss: 0.4148 - val_acc: 0.8316
+Epoch 5/5
+766/766 [==============================] - 514s 672ms/step - loss: 0.3306 - acc: 0.8729 - val_loss: 0.4109 - val_acc: 0.8344
+
+# predict on test set
+y_pred = seq_model.predict(X_test)
+
+# convert predicted probabilities to binary labels
+y_pred = (y_pred > 0.5).astype(int)
+
+# generate classification report
+print(classification_report(y_test, y_pred, target_names=['negative', 'positive']))
+469/469 [==============================] - 90s 172ms/step
+              precision    recall  f1-score   support
+
+    negative       0.88      0.77      0.82      7411
+    positive       0.80      0.90      0.85      7589
+
+    accuracy                           0.84     15000
+   macro avg       0.84      0.84      0.84     15000
+weighted avg       0.84      0.84      0.84     15000
+
+Next steps
+Train the model a bit more. Explore different architectures. Explore alternative combinations of units, dropout, optimizers and so on.
+Develop some additional cleaning actions.
+Apply different layers like GRU, use different models.
